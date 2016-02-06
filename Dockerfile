@@ -4,8 +4,12 @@ FROM rocker/hadleyverse
 RUN apt-get update
 RUN apt-get install -y curl g++ gawk m4 make patch ruby tcl wget build-essential curl\
 	default-jdk gawk gfortran git m4 ruby texinfo unzip \
-	libbz2-dev libcurl4-openssl-dev libexpat-dev libncurses-dev zlib1g-dev
+	libbz2-dev libcurl4-openssl-dev libexpat-dev libncurses-dev zlib1g-dev \
+	python-setuptools python-dev python-pip
 
+RUN pip install httplib2 oauth2client google-api-python-client
+RUN curl https://dl.google.com/dl/cloudsdk/release/install_google_cloud_sdk.bash | bash
+RUN exec $SHELL
 RUN useradd -m -s /bin/bash linuxbrew
 RUN echo 'linuxbrew ALL=(ALL) NOPASSWD:ALL' >>/etc/sudoers
 USER linuxbrew
@@ -25,4 +29,9 @@ RUN cd bcftools-1.3 && make && mv ./bcftools /home/linuxbrew/.linuxbrew/bin/bcft
 USER root
 RUN R --vanilla -e "source('http://bioconductor.org/biocLite.R'); biocLite('biomaRt')"
 RUN R --vanilla -e "devtools::install_github('Andersenlab/cegwas')"
+RUN R --vanilla -e "install.packages('RMySQL', repos='http://cran.r-project.org')"
 MAINTAINER Daniel Cook <danielecook@gmail.com>
+ADD poll.py poll.py
+ADD cegwas_output.Rmd cegwas_output.Rmd
+ADD service-account.json service-account.json
+ENV GOOGLE_APPLICATION_CREDENTIALS service-account.json
