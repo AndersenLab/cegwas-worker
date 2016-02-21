@@ -14,10 +14,13 @@ library(ggplot2)
 library(jsonlite)
 library(RMySQL)
 library(tidyr)
+library(readr)
+library(compiler)
+
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
-  args <- fromJSON('{"version": 0.1, "email": "danielecook@gmail.com", "release": 0, "report_slug": "great", "trait_name": "telomere_length", "report_name": "great"}')
+  args <- fromJSON('{"release": 0, "report_slug": "telseq-test", "email": "danielcook2013@u.northwestern.edu", "version": 0.1, "report_name": "asdfasdfasdf", "trait_slug": "telomere-length"}')
 } else {
   args <- fromJSON(commandArgs(trailingOnly=TRUE))
 }
@@ -26,19 +29,37 @@ mysql_credentials <- fromJSON(readLines("db_credentials.json"))
 
 # To connect to a database first create a src:
 db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
+
+
+update_status <- function(status) {
+
+db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
+
+# Function for updating status of currently running job.
+comm <- sprintf("UPDATE report_trait SET status='%s' WHERE report_name='%s' AND report_slug = '%s'",
+                status, args$report_name, args$report_slug)
+dbSendQuery(db$con, comm)
+try(dbDisconnect(db$con))
+}
+
+report_trait_strain_tbl <- tbl(db, "report_trait_strain_value")
+
 # Then reference a tbl within that src
-trait <- collect(tbl(db, "report_trait_strain") %>%
-             dplyr::select(strain, report_slug, name, value) %>%
-             dplyr::filter(name == args$trait_name, report_slug == args$report_slug) %>%
+input_trait <- collect(report_trait_strain_tbl %>%
+             dplyr::select(strain, report_slug, trait_slug, value) %>%
+             dplyr::filter(trait_slug == args$trait_slug, report_slug == args$report_slug) %>%
              dplyr::select(strain, value))
-names(trait) <- c("strain", args$trait_name)
+
+try(dbDisconnect(db$con))
+
+colnames(input_trait) <- c("strain", args$trait_slug)
 
 output <- opts_knit$get("rmarkdown.pandoc.to")
 opts_chunk$set(warning=F,
                message=F,
                echo=F,
-               cache=T,
-               cache.path="cache/",
+               eval=T,
+               cache=F,
                fig.path="figures/",
                results="hide")
 
@@ -46,22 +67,53 @@ opts_chunk$set(fig.width=12, fig.height=6)
 output <- "html"
 ```
 
-#### Summary of everything to follow... . .. 
+#### Summary
 
 ```{r perform_mapping}
 
-trait <- process_pheno(trait)
-mapping <- gwas_mappings(trait, mapping_snp_set = FALSE)
-tryCatch(
-proc_mappings <- process_mappings(mapping,trait) %>% dplyr::filter(log10p !=0) %>% filter(!(grepl("MtDNA",marker) & log10p < BF)),
+update_status("Processing Phenotype Data")
+trait  <- process_pheno(input_trait)
+
+update_status("Performing Mapping")
+
+gwas <- cmpfun(gwas_mappings)
+system.time(mapping <- gwas(trait, mapping_snp_set = FALSE))
+
+update_status("Processing Mapping")
+pr_mapping <- dplyr::filter(mapping, log10p !=0) %>% filter(!(grepl("MtDNA",marker) & log10p < 5))
+
+max_sig <- max(pr_mapping$log10p) 
+  
+bf <- -log10(.05/nrow(pr_mapping))
+
+
 proc_mappings <- data.frame()
-)
+if(max_sig > bf){
+  warning("max_sig")
+  proc_mappings <- process_mappings(mapping,trait) %>% 
+    dplyr::filter(log10p !=0) %>% 
+    dplyr::mutate(marker = gsub("_", ":", marker)) %>%
+    filter(!(grepl("MtDNA",marker) & log10p < BF))
+  readr::write_tsv(proc_mappings, "tables/processed_sig_mapping.tsv")
+} 
+
+processed_phenotypes <- as.data.frame(t(trait[[2]]))
+
+mapping %>% dplyr::mutate(marker = gsub("_",":", marker)) %>%
+readr::write_tsv("tables/raw_mapping.tsv")
+
+input_trait %>% readr::write_tsv("tables/raw_phenotype.tsv")
+
+as.data.frame(t(trait[[2]])) %>% dplyr::add_rownames("strain") %>% plyr::rename(c("V1"=args$trait_name)) %>%
+readr::write_tsv("tables/processed_phenotype.tsv")
+
 
 ```
 
 ## Phenotype Distribution
 
 ```{r phenotype_histogram}
+update_status("Plotting Figures")
 ggplot2::ggplot(tidyr::gather(data.frame(trait[[2]]), strain, value))+
   ggplot2::aes(x = value)+
   ggplot2::geom_histogram(color = "black", fill = "grey60")+
@@ -77,43 +129,60 @@ ggplot2::ggplot(tidyr::gather(data.frame(trait[[2]]), strain, value))+
                  panel.background = ggplot2::element_rect( color="black",size=1.2),
                  strip.background = ggplot2::element_rect(color = "black", size = 1.2)) +
   ggplot2::labs(x = "Phenotype", y = "Count")
+
 ```
 
 
-`r if (nrow(proc_mappings) == 0) '# Reducing Signficance Threshold'`
+## Below is a summary of your GWA results. 
 
-```{r eval_mapping}
+`r if (nrow(proc_mappings) > 0) 'Awesome! your phenotype is significantly associated with genetic variation present in the _C. elegans_ population! A number of plots below will summarise your results.'`
+
+`r if (nrow(proc_mappings) == 0) 'Unfortunately your phenotype was not significantly associated with genetic variation present in the _C. elegans_ population. This could be due to noisy trait data - have you performed heritability analysis for your phenotype using our heritability strain panel? If you have and the heritability was found to be high for this trait, the trait might not have reached statistical significance because it is highly complex and more strains need to be phenotyped. If you have phenotyped the entire 152 wild-isolate collection, you can patiently wait for more isolates to be added to the collection, or generate an F2 recombinant inbred line (RIL) panel generated between strains with high and low phenotypes. '`
+
+`r if (nrow(proc_mappings) == 0) '# Manhattan plot'`
+`r if (nrow(proc_mappings) == 0) 'The figure below shows the signifcance value for every single-nucleotide variant (SNV) present in the _C.elegans_ population, which are represented as black dots. The green line corresponds to the Bonferroni-corrected significance threshold, which is defined as _-log10(.05/#snps)'`
+
+```{r non-sig Manhattan Plot, echo=FALSE, warning=FALSE, message=FALSE}
 if(nrow(proc_mappings) == 0){
-  proc_mappings <- process_mappings(mapping,trait,BF = 5) %>% 
-    dplyr::filter(log10p !=0) %>% 
-    filter(!(grepl("MtDNA",marker) & log10p < BF))
-  if(nrow(proc_mappings) == 0){
-    proc_mappings <- process_mappings(mapping,trait,BF = 4.5) %>% 
-      dplyr::filter(log10p !=0) %>% 
-      filter(!(grepl("MtDNA",marker) & log10p < BF))
-    if(nrow(proc_mappings) == 0){
-      proc_mappings <- process_mappings(mapping,trait,BF = 4) %>% 
-        dplyr::filter(log10p !=0) %>% 
-        filter(!(grepl("MtDNA",marker) & log10p < BF))
-      if(nrow(proc_mappings) == 0){
-        proc_mappings <- process_mappings(mapping,trait,BF = 3.5) %>% 
-          dplyr::filter(log10p !=0) %>% 
-          filter(!(grepl("MtDNA",marker) & log10p < BF))
-        if(nrow(proc_mappings) == 0){
-          proc_mappings <- process_mappings(mapping, trait, BF = 3) %>% 
-            dplyr::filter(log10p !=0) %>% 
-            filter(!(grepl("MtDNA",marker) & log10p < BF))
-        }
-      }
-    }
-  }
+  pr_mapping%>%
+  ggplot2::ggplot(.)+
+  ggplot2::aes(x = POS/1e6, y = log10p)+
+  ggplot2::geom_point()+
+  ggplot2::facet_grid(.~CHROM, scales = "free_x")+
+  ggplot2::theme_bw() +
+  ggplot2::geom_hline(aes(yintercept = bf), color = "green", size = 2)+
+  ggplot2::theme(axis.text.x = ggplot2::element_text(size=14, face="bold", color="black"),
+                 axis.text.y = ggplot2::element_text(size=16, face="bold", color="black"),
+                 axis.title.x = ggplot2::element_text(size=20, face="bold", color="black", vjust=-.3),
+                 axis.title.y = ggplot2::element_text(size=20, face="bold", color="black"),
+                 strip.text.x = ggplot2::element_text(size=20, face="bold", color="black"),
+                 strip.text.y = ggplot2::element_text(size=16, face="bold", color="black"),
+                 plot.title = ggplot2::element_text(size=24, face="bold", vjust = 1),
+                 legend.position="none",
+                 panel.background = ggplot2::element_rect( color="black",size=1.2),
+                 strip.background = ggplot2::element_rect(color = "black", size = 1.2)) +
+  ggplot2::labs(x = "Genomic Position (Mb)",
+                y = expression(-log[10](p)))
+  
+  readr::write_tsv(pr_mapping, "tables/non_sig_mapping.tsv")
 }
 
 ```
 
-`r if (nrow(proc_mappings) == 0) '# No Significant Mappings Identified'`
 
-```{r peak_filter}
+```{r}
+update_status("Processing Peaks")
+if (nrow(proc_mappings) == 0) {
+  chunk_run <- FALSE
+  mult_chunk_run <- FALSE
+} else {
+  chunk_run <- TRUE
+}
+
+```
+
+
+```{r, eval = chunk_run}
 if (nrow(proc_mappings) != 0){
   peaks <- na.omit(proc_mappings) %>%
   dplyr::distinct(peak_id) %>%
@@ -126,100 +195,40 @@ if (nrow(proc_mappings) != 0){
 }
 ```
 
-```{r display_logic}
-eval_cell_1 = FALSE
-eval_cell_2 = FALSE
-eval_cell_3 = FALSE
+```{r}
 if (nrow(proc_mappings) != 0){
   if(nrow(peaks) > 0){
     eval_cell_1 = TRUE
+  } else {
+    eval_cell_1 = FALSE
   } 
   
   if(nrow(peaks) > 1){
     eval_cell_2 = TRUE
-  } 
+  } else {
+    eval_cell_2 = FALSE
+  }
   
   if(nrow(peaks) > 2){
     eval_cell_3 = TRUE
-  } 
-} 
+  } else {
+    eval_cell_3 = FALSE
+  }
+} else {
+  eval_cell_1 = FALSE
+  eval_cell_2 = FALSE
+  eval_cell_3 = FALSE
+}
 ```
 
 `r if (eval_cell_1) '------------------------'`
 
 `r if (eval_cell_1) '# Manhattan Plot'`
 `r if (eval_cell_1) 'The figure below shows identified quantitative trait loci (QTL). Each dot represents a single-nucleotide variant (SNV) present in the _C.elegans_ population. Blue dots represent SNVs that are above the defined significance threshold, which is the thick gray line. Red boxes surrounding blue dots represent the QTL confidence interval, which we define as plus/minus 50 SNVs from the last signifincant SNV. The default threshold for significance is the Bonferroni-corrected value (-log10(.05/#SNVs)) and is usually around 5.5.'`
-```{r Manhattan_plot}
+```{r Manplot, echo=FALSE, warning=FALSE, message=FALSE, eval = chunk_run}
 if (nrow(proc_mappings) != 0){
   mplot <- manplot(proc_mappings)
-  mplot[[1]]
-}
-```
-
-`r if (eval_cell_1) '------------------------'`
-
-`r if (eval_cell_1) '# QQ-plot'`
-`r if (eval_cell_1) 'The figure below shows the signifcance values of all SNVs compared to a normally distributed data set. Deviations from this _y=x_ indicate that your data are not normally distributed.'`
-
-```{r qq_plot}
-if (nrow(proc_mappings) != 0){
-  log10ps <- distinct(proc_mappings, marker)
-  
-  cegwas::qq_plot(log10ps$log10p) + scale_x_continuous(limits = c(0, NA))
-}
-```
-
-`r if (eval_cell_1) '------------------------'`
-
-`r if (eval_cell_1) '# PxG plot'`
-`r if (eval_cell_1) 'Below are boxplots showing the how your phenotype data are distributed when split at the peak SNV for each identified QTL. REF refers to the N2 genotype and ALT refers to the variant phenotype. All of the SNVs in our data set are biallelic so these are the only two classes for any given SNV. The phenotype is on the y-axis and the genotype is on the x-axis. QTL chromosome and position is indicated above each plot.'`
-
-```{r PxGplot,echo=FALSE,  warning=FALSE, message=FALSE}
-if (nrow(proc_mappings) != 0){
-  pg_plot <- pxg_plot(proc_mappings, color_strains = NA) 
-  pg_plot[[1]] +theme(legend.position = "none")
-}
-```
-
-`r if (eval_cell_1) '------------------------'`
-
-`r if (eval_cell_1) '# Tajimas for Most Significant QTL'`
-`r if (eval_cell_1) 'Below is a plot showing calculated Tajimas D across the most signficant QTL interval. Tajimas D is tests whether a region of the genome has the expected level of variation within the population with values close to 0 indicating observed variation similar to expected levels, D<0 rare alleles are present that may have arose due to a recent selective sweep, population expansion after a recent bottleneck, or linkage to a swept gene, and D>0 indicating balancing selection or sudden population contraction.'`
-
-```{r TajimasD}
-if(nrow(peaks) > 0){
-  for_tD <- tidyr::separate(peaks, interval,into = c("CHROM", "interval"), sep = ":") %>%
-    tidyr::separate(interval, into = c("start", "end"), sep = "-") %>%
-    tidyr::separate(peak_pos, into = c("ch", "peak_pos"), sep = "_")
-  
-  cegwas::tajimas_d(chromosome = for_tD$CHROM[1],
-            interval_start = for_tD$start[1],
-            interval_end = for_tD$end[1],
-            site_of_interest = as.numeric(for_tD$peak_pos[1]))
-}
-```
-
-`r if (eval_cell_1) '------------------------'`
-
-`r if (eval_cell_1) '# Global Distribution of Peak Variant'`
-`r if (eval_cell_1) 'Below is the world-wide distribution of the SNV most highly correlated with your phenotype.'`
-
-```{r Global_distribution}
-
-if(nrow(peaks) > 0){
-  for_map <- gsub(pattern = "_", replacement = ":", peaks$peak_pos)
-  cegwas::allele_distribution(for_map[1])
-}
-```
-
-`r if (eval_cell_2) '------------------------'`
-
-`r if (eval_cell_2) '# Linkage Disequilibrium Between Peak Markers'`
-`r if (eval_cell_2) 'Below is a plot representing the linkage disequilibrium (LD) between QTL. The LD measure being plotted is the correlation between markers _r = -D / sqrt( p(A) * p(a) * p(B) * p(b) )_, where D raw difference in frequency between the observed number of AB pairs and the expected number and A, B, a, and b refer to alleles at the loci. As a rule of thumb - an LD value of .8 or higher is suggests that the two peak markers are not segregating randomly.'`
-
-```{r LDplot}
-if(nrow(peaks) > 1){
-  plot_peak_ld(proc_mappings)
+  mplot[[1]] + theme(plot.title = ggplot2::element_blank())
 }
 ```
 
@@ -227,9 +236,9 @@ if(nrow(peaks) > 1){
 
 `r if (eval_cell_1) '# Summary of QTL Confidence Intervals'`
 
-`r if (eval_cell_1) 'Below are summary tables of the identified QTL. The first table is a summary of identified QTL and the corresponding confidence intervals. The following tables contain gene variants that are highly correlated with your phenotype present in each of the identified QTL (only the top three QTL are summarised for clarity). The tables are generated by scanning the QTL confidence interval for variants present in the _C. elegans_ population. Next, the Spearman rank correlation coefficient is calculated to test each variants correlation with your phenotype of interest. The variants with the strongest correlation are reported in the tables.'`
+`r if (eval_cell_1) 'Below is a summary table of the QTL identified and corresponding confidence intervals. The first table is a summary of identified QTL and the corresponding confidence intervals.'`
 
-```{r peaks}
+```{r peaks, eval = chunk_run}
 if(nrow(peaks) > 0){
     DT::datatable(peaks,
                 extensions = "Responsive")
@@ -239,17 +248,70 @@ if(nrow(peaks) > 0){
 
 ```
 
-```{r interval_variants}
-if(nrow(proc_mappings) != 0){
-interval_variants <- process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25))
+
+`r if (eval_cell_1) '------------------------'`
+
+`r if (eval_cell_1) '# QQ-plot'`
+`r if (eval_cell_1) 'The figure below shows the signifcance values of all SNVs compared to a normally distributed data set. Deviations from this _y=x_ indicate that your data are not normally distributed.'`
+```{r QQplot, fig.height=12, fig.width=12, eval = chunk_run}
+if (nrow(proc_mappings) != 0){
+  log10ps <- distinct(proc_mappings, marker)
+  
+  cegwas::qq_plot(log10ps$log10p) + scale_x_continuous(limits = c(0, NA))
 }
 ```
 
 `r if (eval_cell_1) '------------------------'`
 
+`r if (eval_cell_1) '# Phenotype-by-Genotype plot'`
+`r if (eval_cell_1) 'Below are boxplots showing the how your phenotype data are distributed when split at the peak SNV for each identified QTL. REF refers to the N2 genotype and ALT refers to the variant phenotype. All of the SNVs in our data set are biallelic so these are the only two classes for any given SNV. The phenotype is on the y-axis and the genotype is on the x-axis. QTL chromosome and position is indicated above each plot.'`
+```{r PxGplot,echo=FALSE,  warning=FALSE, message=FALSE, eval = chunk_run}
+if (nrow(proc_mappings) != 0){
+  pg_plot <- pxg_plot(proc_mappings, color_strains = NA) 
+  pg_plot[[1]] +theme(legend.position = "none",
+                      plot.title = ggplot2::element_blank())
+}
+```
+
+```{r, eval = chunk_run}
+
+if (nrow(peaks) == 1) {
+  mult_chunk_run <- FALSE
+} else {
+  mult_chunk_run <- TRUE
+}
+
+```
+
+`r if (mult_chunk_run) '------------------------'`
+
+`r if (mult_chunk_run) '# Linkage Disequilibrium Between Peak Markers'`
+`r if (mult_chunk_run) 'Below is a plot representing the linkage disequilibrium (LD) between QTL. The LD measure being plotted is the correlation between markers _r = -D / sqrt( p(A) * p(a) * p(B) * p(b) )_, where D raw difference in frequency between the observed number of AB pairs and the expected number and A, B, a, and b refer to alleles at the loci. As a rule of thumb - an LD value of .8 or higher is suggests that the two peak markers are not segregating randomly.'`
+```{r LDplot,echo=FALSE,  warning=FALSE, message=FALSE, results="hide", eval = mult_chunk_run}
+if(nrow(peaks) > 1){
+plot_peak_ld(proc_mappings)
+}
+```
+
+```{r interval_variants, eval = chunk_run}
+if(nrow(proc_mappings) != 0){
+  interval_variants <- process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25))
+  
+  readr::write_tsv(interval_variants, "tables/interval_variants.tsv")
+}
+```
+
+`r if (eval_cell_1) '------------------------'`
+
+`r if (eval_cell_1) '# Summary of QTL Confidence Intervals'`
+
+`r if (eval_cell_1) 'The following tables contain gene variants that are highly correlated with your phenotype present in each of the identified QTL (only the top three QTL are summarised for clarity). The tables are generated by scanning the QTL confidence interval for variants present in the _C. elegans_ population. Next, the Spearman rank correlation coefficient is calculated to test each variants correlation with your phenotype of interest. The variants with the strongest correlation are reported in the tables.'`
+
+`r if (eval_cell_1) '------------------------'`
+
 `r if (eval_cell_1) '## Peak 1'`
 
-```{r Peak1}
+```{r Peak1, eval = chunk_run}
 if(nrow(proc_mappings) != 0){
   peak_1 <- interval_variants %>%  
     dplyr::mutate(query = paste0(CHROM, ":",startPOS, "-",endPOS)) %>% 
@@ -267,11 +329,39 @@ if(nrow(proc_mappings) != 0){
 
 ```
 
+`r if (eval_cell_1) '------------------------'`
+
+`r if (eval_cell_1) '# Global Distribution of Peak Variant'`
+`r if (eval_cell_1) 'Below is the world-wide distribution of the SNV most highly correlated with your phenotype.'`
+```{r Global Distribution,echo=FALSE,  warning=FALSE, message=FALSE, results="hide", eval = chunk_run}
+if(nrow(peaks) > 0){
+  for_map <- gsub(pattern = "_", replacement = ":", peaks$peak_pos)
+  cegwas::allele_distribution(for_map[1])
+}
+```
+
+`r if (eval_cell_1) '------------------------'`
+
+`r if (eval_cell_1) '# Tajima\'s D for Most Significant QTL'`
+`r if (eval_cell_1) 'Below is a plot showing calculated Tajima\'s D across the most signficant QTL interval. Tajima\'s D is tests whether a region of the genome has the expected level of variation within the population with values close to 0 indicating observed variation similar to expected levels, D<0 rare alleles are present that may have arose due to a recent selective sweep, population expansion after a recent bottleneck, or linkage to a swept gene, and D>0 indicating balancing selection or sudden population contraction.'`
+```{r TajimasD,echo=FALSE,  warning=FALSE, message=FALSE, results="hide", eval = chunk_run}
+if(nrow(peaks) > 0){
+  for_tD <- tidyr::separate(peaks, interval,into = c("CHROM", "interval"), sep = ":") %>%
+    tidyr::separate(interval, into = c("start", "end"), sep = "-") %>%
+    tidyr::separate(peak_pos, into = c("ch", "peak_pos"), sep = "_")
+  
+  cegwas::tajimas_d(chromosome = for_tD$CHROM[1],
+            interval_start = for_tD$start[1],
+            interval_end = for_tD$end[1],
+            site_of_interest = as.numeric(for_tD$peak_pos[1]))
+}
+```
+
 `r if (eval_cell_2) '------------------------'`
 
 `r if (eval_cell_2) '## Peak 2'`
 
-```{r Peak2}
+```{r Peak2, eval = eval_cell_2}
 if(nrow(peaks) > 1){
   peak_2 <- interval_variants %>%  
   dplyr::mutate(query = paste0(CHROM, ":",startPOS, "-",endPOS)) %>% 
@@ -289,11 +379,35 @@ if(nrow(peaks) > 1){
 
 ```
 
+`r if (eval_cell_2) '------------------------'`
+
+```{r TajimasD_2, eval = eval_cell_2}
+if(nrow(peaks) > 0){
+  for_tD <- tidyr::separate(peaks, interval,into = c("CHROM", "interval"), sep = ":") %>%
+    tidyr::separate(interval, into = c("start", "end"), sep = "-") %>%
+    tidyr::separate(peak_pos, into = c("ch", "peak_pos"), sep = "_")
+  
+  cegwas::tajimas_d(chromosome = for_tD$CHROM[2],
+            interval_start = for_tD$start[2],
+            interval_end = for_tD$end[2],
+            site_of_interest = as.numeric(for_tD$peak_pos[2]))
+}
+```
+
+`r if (eval_cell_2) '------------------------'`
+
+```{r Global Distribution 2, eval = eval_cell_2}
+if(nrow(peaks) > 0){
+  for_map <- gsub(pattern = "_", replacement = ":", peaks$peak_pos)
+  cegwas::allele_distribution(for_map[2])
+}
+```
+
 `r if (eval_cell_3) '------------------------'`
 
 `r if (eval_cell_3) '## Peak 3'`
 
-```{r Peak3}
+```{r Peak3, eval = eval_cell_3}
 if(nrow(peaks) > 2){
   peak_3 <- interval_variants %>%  
   dplyr::mutate(query = paste0(CHROM, ":",startPOS, "-",endPOS)) %>% 
@@ -311,5 +425,32 @@ if(nrow(peaks) > 2){
 
 ```
 
+`r if (eval_cell_3) '------------------------'`
 
+```{r TajimasD_3, eval = eval_cell_3}
+if(nrow(peaks) > 0){
+  for_tD <- tidyr::separate(peaks, interval,into = c("CHROM", "interval"), sep = ":") %>%
+    tidyr::separate(interval, into = c("start", "end"), sep = "-") %>%
+    tidyr::separate(peak_pos, into = c("ch", "peak_pos"), sep = "_")
+  
+  cegwas::tajimas_d(chromosome = for_tD$CHROM[3],
+            interval_start = for_tD$start[3],
+            interval_end = for_tD$end[3],
+            site_of_interest = as.numeric(for_tD$peak_pos[3]))
+}
+```
 
+`r if (eval_cell_3) '------------------------'`
+
+```{r Global Distribution 3, eval = eval_cell_3}
+if(nrow(peaks) > 0){
+  for_map <- gsub(pattern = "_", replacement = ":", peaks$peak_pos)
+  cegwas::allele_distribution(for_map[3])
+}
+
+```
+
+```{r}
+update_status("Transferring Data")
+
+```
