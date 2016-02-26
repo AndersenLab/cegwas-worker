@@ -1,3 +1,4 @@
+import daemon
 import httplib2
 import base64
 import json
@@ -13,12 +14,33 @@ from datetime import datetime
 import pytz
 import glob
 import csv
-
 from gcloud import datastore
+import requests
+from daemonize import Daemonize
+import logging
+
+logging.basicConfig(format = "%(levelname)s\t%(message)s\t%(asctime)s")
+
+# Set up file and stream loggers
+fh = logging.FileHandler("/home/danielcook/cegwas-worker/poll.log", "w+")
+fh.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.ERROR)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
+
+log.addHandler(fh)
+log.addHandler(ch)
+
+pid = "/tmp/poll.pid"
+
 ds = datastore.Client()
 
 # Get instance information
-import requests
 metadata_server = "http://metadata/computeMetadata/v1/instance/"
 metadata_flavor = {'Metadata-Flavor' : 'Google'}
 gce_id = requests.get(metadata_server + 'id', headers = metadata_flavor).text
@@ -34,88 +56,108 @@ def update_worker_state(status = "idle", report_slug = "", trait_slug = ""):
     worker["trait_slug"] = unicode(trait_slug)
     ds.put(worker)
 
-update_worker_state()
 
 # Fetch queue
-queue = IronMQ().queue("cegwas-map")
+def get_queue():
+    iron_credentials = ds.get(ds.key("credential", "iron"))
+    return IronMQ(**dict(iron_credentials)).queue("cegwas-map")
 
-while True:
 
-    update_worker_state(status = "idle")
-    resp = queue.reserve(timeout=3600, max = 1, wait = 3)["messages"]
+def run_pipeline():
+    log.info("starting_script")
+    update_worker_state()
 
-    if len(resp) > 0:
-        try:
-            message = resp[0]
+    # Fetch queue
+    queue = get_queue()
 
-            # Acknowledge reciept of message
-            args = message["body"]
-            data = json.loads(args)
-            report_slug = data["report_slug"]
-            trait_slug = data["trait_slug"]
+    while True:
+        update_worker_state(status = "idle")
+        resp = queue.reserve(timeout=3600, max = 1, wait = 3)["messages"]
+        if len(resp) > 0:
+            try:
+                message = resp[0]
 
-            # Refresh mysql connection
-            db.close()
-            db.connect()
+                # Acknowledge reciept of message
+                args = message["body"]
+                data = json.loads(args)
+                report_slug = data["report_slug"]
+                trait_slug = data["trait_slug"]
 
-            report_id = report.get(report_slug = report_slug).id
+                log.info("Starting Mapping: " + report_slug + "/" + trait_slug)
+                # Refresh mysql connection
+                db.close()
+                db.connect()
 
-            # Update status
-            update_worker_state(status = "running", report_slug = report_slug, trait_slug = trait_slug)
-            
-            # Remove existing files if they exist
-            [os.remove(x) for x in glob.glob("tables/*")]
-            [os.remove(x) for x in glob.glob("figures/*")]
-            if os.path.isfile("report.html"):
-                os.remove("report.html")
+                report_id = report.get(report_slug = report_slug).id
 
-            # Run workflow
-            comm = """Rscript -e "rmarkdown::render('report.Rmd')" '{args}'""".format(args = args)
+                # Update status
+                update_worker_state(status = "running", report_slug = report_slug, trait_slug = trait_slug)
+                
+                # Remove existing files if they exist
+                [os.remove(x) for x in glob.glob("tables/*")]
+                [os.remove(x) for x in glob.glob("figures/*")]
+                if os.path.isfile("report.html"):
+                    os.remove("report.html")
 
-            print(comm)
-            check_output(comm, shell = True)
+                # Run workflow
+                comm = """Rscript -e "rmarkdown::render('report.Rmd')" '{args}'""".format(args = args)
 
-            # Refresh mysql connection
-            db.close()
-            db.connect()
+                print(comm)
+                check_output(comm, shell = True)
 
-            update_worker_state(status = "uploading_results", report_slug = report_slug, trait_slug = trait_slug)
+                # Refresh mysql connection
+                db.close()
+                db.connect()
 
-            # Upload results
-            upload1 = """gsutil -m cp report.html gs://cendr/{report_slug}/{trait_slug}/report.html""".format(**locals())
-            check_output(upload1, shell = True)
-            upload2 = """gsutil -m cp -r figures gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
-            check_output(upload2, shell = True)
-            upload3 = """gsutil -m cp -r tables gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
-            check_output(upload3, shell = True)
+                update_worker_state(status = "uploading_results", report_slug = report_slug, trait_slug = trait_slug)
 
-            # Insert records into database
-            if os.path.isfile("tables/processed_sig_mapping.tsv"):
-                with open("tables/processed_sig_mapping.tsv", 'rb') as tsvin:
-                    tsvin = csv.DictReader(tsvin, delimiter = "\t")
-                    marker_set = []
-                    for row in tsvin:
-                        if row["startPOS"] != "NA" and row["marker"] not in marker_set:
-                            marker_set.append(row["marker"])
-                            mapping(chrom = row["CHROM"],
-                                    pos = row["POS"],
-                                    trait = trait.get(trait_slug = trait_slug),
-                                    variance_explained = row["var.exp"],
-                                    log10p = row["log10p"],
-                                    BF = row["BF"],
-                                    interval_start = row["startPOS"],
-                                    interval_end = row["endPOS"],
-                                    version = "0.1",
-                                    reference = "WS245").save()
+                # Upload results
+                upload1 = """gsutil -m cp report.html gs://cendr/{report_slug}/{trait_slug}/report.html""".format(**locals())
+                check_output(upload1, shell = True)
+                upload2 = """gsutil -m cp -r figures gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
+                check_output(upload2, shell = True)
+                upload3 = """gsutil -m cp -r tables gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
+                check_output(upload3, shell = True)
 
-            # Update status of report submission
-            trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
-            print("Finished " + report_slug + "/" + trait_slug)
-        except:
-            trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="error").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
-        print "DELETING ITEM"
-        queue.delete(message["id"], message["reservation_id"])
+                # Insert records into database
+                if os.path.isfile("tables/processed_sig_mapping.tsv"):
+                    with open("tables/processed_sig_mapping.tsv", 'rb') as tsvin:
+                        tsvin = csv.DictReader(tsvin, delimiter = "\t")
+                        marker_set = []
+                        for row in tsvin:
+                            if row["startPOS"] != "NA" and row["marker"] not in marker_set:
+                                marker_set.append(row["marker"])
+                                mapping(chrom = row["CHROM"],
+                                        pos = row["POS"],
+                                        trait = trait.get(trait_slug = trait_slug),
+                                        variance_explained = row["var.exp"],
+                                        log10p = row["log10p"],
+                                        BF = row["BF"],
+                                        interval_start = row["startPOS"],
+                                        interval_end = row["endPOS"],
+                                        version = "0.1",
+                                        reference = "WS245").save()
 
-        
+                # Update status of report submission
+                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
+                log.info("Finished " + report_slug + "/" + trait_slug)
+            except Exception as e:
+                log.exception("mapping errored")
+                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="error").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
+            log.info("Deleting " + message['id'])
+            queue.delete(message["id"], message["reservation_id"])
+
+
+# Run as a daemon
+daemon = Daemonize(app="poll", 
+                   pid=pid,
+                   action=run_pipeline,
+                   logger = log,
+                   verbose=True,
+                   foreground=True,
+                   chdir="/home/danielcook/cegwas-worker",
+                   keep_fds=[fh.stream.fileno()])
+log.info("Starting")
+daemon.start()
 
 

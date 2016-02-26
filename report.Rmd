@@ -17,7 +17,14 @@ library(tidyr)
 library(readr)
 library(compiler)
 
+options(show.error.messages = TRUE)
 
+dbDisconnectAll <- function(){
+  ile <- length(dbListConnections(MySQL())  )
+  lapply( dbListConnections(MySQL()), function(x) dbDisconnect(x) )
+  cat(sprintf("%s connection(s) closed.\n", ile))
+}
+print("TEST")
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
   args <- fromJSON('{"release": 0, "report_slug": "telseq-test", "email": "danielcook2013@u.northwestern.edu", "version": 0.1, "report_name": "asdfasdfasdf", "trait_slug": "telomere-length"}')
@@ -33,13 +40,14 @@ db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_c
 
 update_status <- function(status) {
 
+dbDisconnectAll()
 db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
 
 # Function for updating status of currently running job.
 comm <- sprintf("UPDATE report_trait SET status='%s' WHERE report_slug = '%s' AND trait_slug = '%s'",
                 status, args$report_slug, args$trait_slug)
 dbSendQuery(db$con, comm)
-try(dbDisconnect(db$con))
+dbDisconnectAll()
 }
 
 report_trait_strain_tbl <- tbl(db, "report_trait_strain_value")
