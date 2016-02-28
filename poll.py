@@ -129,6 +129,7 @@ def run_pipeline():
                                 marker_set.append(row["marker"])
                                 mapping(chrom = row["CHROM"],
                                         pos = row["POS"],
+                                        report = report.get(report_slug = report_slug),
                                         trait = trait.get(trait_slug = trait_slug),
                                         variance_explained = row["var.exp"],
                                         log10p = row["log10p"],
@@ -144,6 +145,13 @@ def run_pipeline():
             except Exception as e:
                 log.exception("mapping errored")
                 trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="error").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
+                error = datastore.Entity(key=ds.key("Error", gce_id))
+                error["machine_name"] = gce_name
+                error["error"] = unicode(e)
+                error["time"] = unicode(datetime.now(pytz.timezone("America/Chicago")).isoformat())
+                error["report_slug"] = unicode(report_slug)
+                error["trait_slug"] = unicode(trait_slug)
+                ds.put(error)
             log.info("Deleting " + message['id'])
             queue.delete(message["id"], message["reservation_id"])
 
