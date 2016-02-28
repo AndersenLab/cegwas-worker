@@ -127,10 +127,12 @@ def run_pipeline():
                         for row in tsvin:
                             if row["startPOS"] != "NA" and row["marker"] not in marker_set:
                                 marker_set.append(row["marker"])
+                                report_item = report.get(report_slug = report_slug)
+                                trait_item = list(trait.select().filter(trait.trait_slug == trait_slug, trait.report == report_item).dicts().execute())[0]["id"]
                                 mapping(chrom = row["CHROM"],
                                         pos = row["POS"],
-                                        report = report.get(report_slug = report_slug),
-                                        trait = trait.get(trait_slug = trait_slug),
+                                        report = report_item,
+                                        trait = trait_item,
                                         variance_explained = row["var.exp"],
                                         log10p = row["log10p"],
                                         BF = row["BF"],
