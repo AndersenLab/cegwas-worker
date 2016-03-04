@@ -63,6 +63,8 @@ def get_queue():
     return IronMQ(**dict(iron_credentials)).queue("cegwas-map")
 
 
+update_worker_state(status = "idle")
+
 def run_pipeline():
     log.info("starting_script")
     update_worker_state()
@@ -71,7 +73,6 @@ def run_pipeline():
     queue = get_queue()
 
     while True:
-        update_worker_state(status = "idle")
         resp = queue.reserve(timeout=3600, max = 1, wait = 3)["messages"]
         if len(resp) > 0:
             try:
@@ -156,6 +157,7 @@ def run_pipeline():
                 ds.put(error)
             log.info("Deleting " + message['id'])
             queue.delete(message["id"], message["reservation_id"])
+            update_worker_state(status = "idle")
 
 
 # Run as a daemon
