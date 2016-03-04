@@ -46,14 +46,16 @@ metadata_flavor = {'Metadata-Flavor' : 'Google'}
 gce_id = requests.get(metadata_server + 'id', headers = metadata_flavor).text
 gce_name = requests.get(metadata_server + 'hostname', headers = metadata_flavor).text
 
-def update_worker_state(status = "idle", report_slug = "", trait_slug = ""):
+def update_worker_state(status = "idle", report_slug = "", report_name = "", trait_slug = "", trait_name = ""):
     worker = datastore.Entity(key=ds.key("Worker", gce_id))
     worker["full_name"] = gce_name
     worker["last_update"] = unicode(datetime.now(pytz.timezone("America/Chicago")).isoformat())
     worker["last_update_unix"] = time.time()
     worker["status"] = unicode(status)
     worker["report_slug"] = unicode(report_slug)
+    worker["report_name"] = unicode(report_name)
     worker["trait_slug"] = unicode(trait_slug)
+    worker["trait_name"] = unicode(trait_name)
     ds.put(worker)
 
 
@@ -63,11 +65,11 @@ def get_queue():
     return IronMQ(**dict(iron_credentials)).queue("cegwas-map")
 
 
-update_worker_state(status = "idle")
-
 def run_pipeline():
     log.info("starting_script")
-    update_worker_state()
+
+    # Set initial worker status to idle.
+    update_worker_state(status = "idle")
 
     # Fetch queue
     queue = get_queue()
@@ -82,7 +84,9 @@ def run_pipeline():
                 args = message["body"]
                 data = json.loads(args)
                 report_slug = data["report_slug"]
+                report_name = data["report_name"]
                 trait_slug = data["trait_slug"]
+                trait_name = data["trait_name"]
 
                 log.info("Starting Mapping: " + report_slug + "/" + trait_slug)
                 # Refresh mysql connection
@@ -92,7 +96,7 @@ def run_pipeline():
                 report_id = report.get(report_slug = report_slug).id
 
                 # Update status
-                update_worker_state(status = "running", report_slug = report_slug, trait_slug = trait_slug)
+                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name)
                 
                 # Remove existing files if they exist
                 [os.remove(x) for x in glob.glob("tables/*")]
@@ -110,8 +114,8 @@ def run_pipeline():
                 db.close()
                 db.connect()
 
-                update_worker_state(status = "uploading_results", report_slug = report_slug, trait_slug = trait_slug)
-
+                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name)
+                
                 # Upload results
                 upload1 = """gsutil -m cp report.html gs://cendr/{report_slug}/{trait_slug}/report.html""".format(**locals())
                 check_output(upload1, shell = True)
