@@ -20,11 +20,11 @@ library(RMySQL)
 library(tidyr)
 library(readr)
 library(compiler)
-
+library("highr", lib.loc="~/Library/R/3.2/library")
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
-  args <- fromJSON('{"release": 0, "report_slug": "telseq-full", "email": "danielcook2013@u.northwestern.edu", "version": 0.1, "report_name": "telomere-length", "trait_slug": "telomere-length"}')
+  args <- fromJSON('{"submission_date": "2016-03-06T14:13:35.335770-06:00", "trait_name": "CAA", "success": true, "trait_slug": "caa", "report_hash": "4119505f81cbd75f5a66", "report_name": "Codon Usage2", "version": 1, "release": 0, "report_slug": "codon-usage2", "email": "danielecook@gmail.com"}')
 } else {
   args <- fromJSON(commandArgs(trailingOnly=TRUE))
 }
@@ -170,10 +170,13 @@ phenotype_combined <- tidyr::gather(data.frame(trait[[2]]), strain, value) %>%
 
 `r kable(phenotype_combined)`
 
-# Mapping 
+`r if (nrow(proc_mappings) > 0) '# Mapping'`
 
-```{r non-sig Manhattan Plot, echo=FALSE, warning=FALSE, message=FALSE}
+```{r non-sig Manhattan Plot}
 if(nrow(proc_mappings) == 0){
+  
+  readr::write_tsv(pr_mapping, "tables/non_sig_mapping.tsv")
+  
   pr_mapping %>%
   ggplot2::ggplot(.) +
   ggplot2::aes(x = POS/1e6, y = log10p) +
@@ -190,8 +193,6 @@ if(nrow(proc_mappings) == 0){
         panel.border = element_rect(size=1, color = "black")) +
   ggplot2::labs(x = "Genomic Position (Mb)",
                 y = expression(-log[10](p)))
-  
-  readr::write_tsv(pr_mapping, "tables/non_sig_mapping.tsv")
 }
 
 ```
@@ -206,11 +207,13 @@ if (nrow(proc_mappings) == 0) {
   chunk_run <- TRUE
 }
 
+# Dummy peaks variable
+peaks <- as.data.frame(c())
 ```
 
 
 ```{r, eval = chunk_run}
-if (nrow(proc_mappings) != 0){
+if (nrow(proc_mappings) != 0) {
   peaks <- na.omit(proc_mappings) %>%
   dplyr::distinct(peak_id) %>%
   dplyr::select(marker, CHROM, startPOS, endPOS, log10p, trait) %>%
@@ -219,7 +222,7 @@ if (nrow(proc_mappings) != 0){
   dplyr::mutate(top3peaks = seq(1:n())) %>%
   dplyr::filter(top3peaks < 4) %>%
   dplyr::select(trait,peak_pos = marker, interval = query, peak_log10p = log10p)
-}
+} 
 ```
 
 ```{r}
@@ -252,7 +255,7 @@ if (nrow(proc_mappings) != 0){
 
 `r if (eval_cell_1) '## Manhattan Plot'`
 
-```{r Manplot, echo=FALSE, warning=FALSE, message=FALSE, eval = chunk_run}
+```{r Manplot, eval = chunk_run}
 if (nrow(proc_mappings) != 0){
   mplot <- manplot(proc_mappings, "#666666")
   mplot[[1]] +
@@ -348,7 +351,7 @@ if(nrow(proc_mappings) != 0){
 }
 ```
 
-## Peak Summary {.tabset}
+`r if (eval_cell_1) '## Peak Summary {.tabset}'`
 
 `r if (eval_cell_1) '------------------------'`
 
@@ -410,7 +413,7 @@ get_peak_dt(1)
   cat("Salmon dots correspond to strains that have the alternate allele and purple dots are strains that have the N2 allele.\n\n")
 ```
 
-#### Tajima\'s D
+`r if (eval_cell_1) '#### Tajima\'s D'`
 
 ```{r, eval = eval_cell_1, results = "hide"}
 if (nrow(proc_mappings) != 0)  {
@@ -441,7 +444,7 @@ get_peak_dt(2)
   cat("Salmon dots correspond to strains that have the alternate allele and purple dots are strains that have the N2 allele.\n\n")
 ```
 
-#### Tajima\'s D
+`r if (eval_cell_2) '#### Tajima\'s D'`
 
 ```{r, eval = eval_cell_2, results = "hide"}
 if (nrow(proc_mappings) != 0)  {
@@ -472,7 +475,7 @@ get_peak_dt(3)
   cat("Salmon dots correspond to strains that have the alternate allele and purple dots are strains that have the N2 allele.\n\n")
 ```
 
-#### Tajima\'s D
+`r if (eval_cell_3) '#### Tajima\'s D'`
 
 ```{r, eval = eval_cell_3, results = "hide"}
 if (nrow(proc_mappings) != 0)  {
