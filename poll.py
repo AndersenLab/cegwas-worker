@@ -46,9 +46,10 @@ metadata_flavor = {'Metadata-Flavor' : 'Google'}
 gce_id = requests.get(metadata_server + 'id', headers = metadata_flavor).text
 gce_name = requests.get(metadata_server + 'hostname', headers = metadata_flavor).text
 
-def update_worker_state(status = "idle", report_slug = "", report_name = "", trait_slug = "", trait_name = ""):
+def update_worker_state(status = "idle", report_slug = "", report_name = "", trait_slug = "", trait_name = "", release = 0):
     worker = datastore.Entity(key=ds.key("Worker", gce_id))
     worker["full_name"] = gce_name
+    worker["release"] = release
     worker["last_update"] = unicode(datetime.now(pytz.timezone("America/Chicago")).isoformat())
     worker["last_update_unix"] = time.time()
     worker["status"] = unicode(status)
@@ -87,6 +88,7 @@ def run_pipeline():
                 report_name = data["report_name"]
                 trait_slug = data["trait_slug"]
                 trait_name = data["trait_name"]
+                release = data["release"]
 
                 log.info("Starting Mapping: " + report_slug + "/" + trait_slug)
                 # Refresh mysql connection
@@ -96,7 +98,7 @@ def run_pipeline():
                 report_id = report.get(report_slug = report_slug).id
 
                 # Update status
-                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name)
+                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
                 
                 # Remove existing files if they exist
                 [os.remove(x) for x in glob.glob("tables/*")]
@@ -114,7 +116,7 @@ def run_pipeline():
                 db.close()
                 db.connect()
 
-                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name)
+                update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
                 
                 # Upload results
                 upload1 = """gsutil -m cp report.html gs://cendr/{report_slug}/{trait_slug}/report.html""".format(**locals())
