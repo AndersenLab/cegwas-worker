@@ -20,11 +20,11 @@ library(RMySQL)
 library(tidyr)
 library(readr)
 library(compiler)
-library("highr", lib.loc="~/Library/R/3.2/library")
+library(highr)
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
-  args <- fromJSON('{"submission_date": "2016-03-06T14:13:35.335770-06:00", "trait_name": "CAA", "success": true, "trait_slug": "caa", "report_hash": "4119505f81cbd75f5a66", "report_name": "Codon Usage2", "version": 1, "release": 0, "report_slug": "codon-usage2", "email": "danielecook@gmail.com"}')
+  args <- fromJSON('{"submission_date": "2016-02-28T01:11:21.888460-06:00", "trait_name": "ATT", "success": true, "trait_slug": "att", "report_hash": "a3c30489d9f7052fd17c", "report_name": "Codon Usage2", "version": 1, "release": 0, "report_slug": "codon-usage2", "email": "danielecook@gmail.com"}')
 } else {
   args <- fromJSON(commandArgs(trailingOnly=TRUE))
 }
