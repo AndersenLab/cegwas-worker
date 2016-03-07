@@ -20,11 +20,11 @@ library(RMySQL)
 library(tidyr)
 library(readr)
 library(compiler)
-library(highr)
+
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
-  args <- fromJSON('{"submission_date": "2016-02-28T01:11:21.888460-06:00", "trait_name": "ATT", "success": true, "trait_slug": "att", "report_hash": "a3c30489d9f7052fd17c", "report_name": "Codon Usage2", "version": 1, "release": 0, "report_slug": "codon-usage2", "email": "danielecook@gmail.com"}')
+  args <- fromJSON('{"submission_date": "2016-02-28T01:11:21.888460-06:00", "trait_name": "att", "success": true, "trait_slug": "gct", "report_hash": "a3c30489d9f7052fd17c", "report_name": "codon-usage-3", "version": 1, "release": 0, "report_slug": "codon-usage-3", "email": "danielecook@gmail.com"}')
 } else {
   args <- fromJSON(commandArgs(trailingOnly=TRUE))
 }
@@ -163,12 +163,14 @@ phenotype_combined <- tidyr::gather(data.frame(trait[[2]]), strain, value) %>%
 
 `r if (nrow(proc_mappings) == 0) 'Unfortunately your phenotype was not significantly associated with genetic variation present in the _C. elegans_ population. This could be due to noisy trait data - have you performed heritability analysis for your phenotype using our heritability strain panel? If you have and the heritability was found to be high for this trait, the trait might not have reached statistical significance because it is highly complex and more strains need to be phenotyped. If you have phenotyped the entire 152 wild-isolate collection, you can patiently wait for more isolates to be added to the collection, or generate an F2 recombinant inbred line (RIL) panel generated between strains with high and low phenotypes. '`
 
-`r if (nrow(proc_mappings) == 0) '# Manhattan plot'`
-`r if (nrow(proc_mappings) == 0) 'The figure below shows the signifcance value for every single-nucleotide variant (SNV) present in the _C.elegans_ population, which are represented as black dots. The red line corresponds to the Bonferroni-corrected significance threshold, which is defined as $(-log_{10}\\frac{0.05}{\\#SNVs})$'`
-
 ## Data
 
 `r kable(phenotype_combined)`
+
+
+
+`r if (nrow(proc_mappings) == 0) '# Manhattan plot'`
+`r if (nrow(proc_mappings) == 0) 'The figure below shows the signifcance value for every single-nucleotide variant (SNV) present in the _C.elegans_ population, which are represented as black dots. The red line corresponds to the Bonferroni-corrected significance threshold, which is defined as $(-log_{10}\\frac{0.05}{\\#SNVs})$'`
 
 `r if (nrow(proc_mappings) > 0) '# Mapping'`
 
