@@ -32,12 +32,12 @@ if (length(commandArgs(trailingOnly=TRUE)) == 0) {
 mysql_credentials <- fromJSON(readLines("credentials.json"))
 
 # To connect to a database first create a src:
-db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
+db <- src_mysql(dbname = "cegwas_v2", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
 
 
 update_status <- function(status) {
 
-db <- src_mysql(dbname = "cegwas", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
+db <- src_mysql(dbname = "cegwas_v2", host = mysql_credentials$host, user = mysql_credentials$user, password= mysql_credentials$password)
 
 # Function for updating status of currently running job.
 comm <- sprintf("UPDATE report_trait SET status='%s' WHERE report_slug = '%s' AND trait_slug = '%s'",
