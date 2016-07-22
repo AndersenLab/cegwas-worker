@@ -152,11 +152,12 @@ class mapping_correlation(Model):
     correlation = FloatField()
 
     indexes = (
-            (('CHROM', 'POS', 'gene_id'), False),
+            (('report', 'trait', 'CHROM', 'POS', 'gene_id'), True),
             )
 
     class Meta:
         database = db
+        
 
 class WI(Model):
     CHROM = CharField(max_length=5)
