@@ -178,6 +178,8 @@ class mapping(Model):
 
 
 class mapping_correlation(Model):
+    report = ForeignKeyField(report)
+    trait = ForeignKeyField(trait)
     CHROM = CharField(index = True)
     POS = IntegerField(index = True)
     gene_id = CharField(index = True)
@@ -186,11 +188,12 @@ class mapping_correlation(Model):
     correlation = FloatField()
 
     indexes = (
-            (('chrom', 'pos', 'wbid'), False),
+            (('CHROM', 'POS', 'gene_id'), False),
             )
 
     class Meta:
         database = db
+
 
 
 class site(Model):
