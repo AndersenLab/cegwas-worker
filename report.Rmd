@@ -24,7 +24,7 @@ library(compiler)
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
-  args <- fromJSON('{"submission_date": "2016-02-28T01:11:21.888460-06:00", "trait_name": "att", "success": true, "trait_slug": "gct", "report_hash": "a3c30489d9f7052fd17c", "report_name": "codon-usage-3", "version": 1, "release": 0, "report_slug": "codon-usage-3", "email": "danielecook@gmail.com"}')
+  args <- fromJSON('{"submission_date": "2016-02-28T01:11:21.888460-06:00", "trait_name": "latitude", "success": true, "trait_slug": "latitude", "report_hash": "", "report_name": "latitude", "version": 1, "release": 0, "report_slug": "geographic-distrubiution", "email": "danielecook@gmail.com"}')
 } else {
   args <- fromJSON(commandArgs(trailingOnly=TRUE))
 }
@@ -190,7 +190,6 @@ if(nrow(proc_mappings) == 0){
   pub_theme + 
   theme(plot.margin = unit(c(0.0,0.5,0.5,0),"cm"),
         strip.background = element_blank(),
-        #strip.text = element_blank(),
         axis.title.y = element_text(vjust=2.5),
         panel.border = element_rect(size=1, color = "black")) +
   ggplot2::labs(x = "Genomic Position (Mb)",
@@ -217,7 +216,7 @@ peaks <- as.data.frame(c())
 ```{r, eval = chunk_run}
 if (nrow(proc_mappings) != 0) {
   peaks <- na.omit(proc_mappings) %>%
-  dplyr::distinct(peak_id) %>%
+  dplyr::distinct(peak_id, .keep_all = TRUE) %>%
   dplyr::select(marker, CHROM, startPOS, endPOS, log10p, trait) %>%
   dplyr::mutate(query = paste0(CHROM, ":",startPOS, "-",endPOS)) %>%
   dplyr::arrange(desc(log10p)) %>%
@@ -291,7 +290,7 @@ if (nrow(proc_mappings) != 0){
 
 ```{r QQplot, fig.height=12, fig.width=12, eval = chunk_run}
 if (nrow(proc_mappings) != 0){
-  log10ps <- distinct(proc_mappings, marker)
+  log10ps <- distinct(proc_mappings, marker, .keep_all = TRUE)
   
   cegwas::qq_plot(log10ps$log10p) + scale_x_continuous(limits = c(0, NA)) +
     pub_theme
@@ -347,9 +346,15 @@ plot_peak_ld(proc_mappings)
 
 ```{r interval_variants, eval = chunk_run}
 if(nrow(proc_mappings) != 0){
-  interval_variants <- process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25))
+  interval_variants <- process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25, condition_trait = F))
   
   readr::write_tsv(interval_variants, "tables/interval_variants.tsv")
+  
+  # Condense Interval Variants File
+  interval_variants %>% 
+    dplyr::select(CHROM, POS, gene_id, num_alt_allele, num_strains, corrected_spearman_cor) %>%
+    dplyr::distinct(.keep_all = T) %>%
+    readr::write_tsv("tables/interval_variants_db.tsv")
 }
 ```
 
