@@ -90,6 +90,10 @@ def run_pipeline():
                 trait_name = data["trait_name"]
                 release = data["release"]
 
+                # Get db trait and report.
+                report_item = report.get(report_slug = report_slug)
+                trait_item = list(trait.select().filter(trait.trait_slug == trait_slug, trait.report == report_item).dicts().execute())[0]["id"]
+
                 log.info("Starting Mapping: " + report_slug + "/" + trait_slug)
                 # Refresh mysql connection
                 db.close()
@@ -128,25 +132,39 @@ def run_pipeline():
 
                 # Insert records into database
                 if os.path.isfile("tables/processed_sig_mapping.tsv"):
-                    with open("tables/processed_sig_mapping.tsv", 'rb') as tsvin:
-                        tsvin = csv.DictReader(tsvin, delimiter = "\t")
-                        marker_set = []
-                        for row in tsvin:
-                            if row["startPOS"] != "NA" and row["marker"] not in marker_set:
-                                marker_set.append(row["marker"])
-                                report_item = report.get(report_slug = report_slug)
-                                trait_item = list(trait.select().filter(trait.trait_slug == trait_slug, trait.report == report_item).dicts().execute())[0]["id"]
-                                mapping(chrom = row["CHROM"],
-                                        pos = row["POS"],
-                                        report = report_item,
-                                        trait = trait_item,
-                                        variance_explained = row["var.exp"],
-                                        log10p = row["log10p"],
-                                        BF = row["BF"],
-                                        interval_start = row["startPOS"],
-                                        interval_end = row["endPOS"],
-                                        version = "0.1",
-                                        reference = "WS245").save()
+                    with db.atomic():
+                        with open("tables/processed_sig_mapping.tsv", 'rb') as tsvin:
+                            tsvin = csv.DictReader(tsvin, delimiter = "\t")
+                            marker_set = []
+                            for row in tsvin:
+                                if row["startPOS"] != "NA" and row["marker"] not in marker_set:
+                                    marker_set.append(row["marker"])
+                                    mapping(chrom = row["CHROM"],
+                                            pos = row["POS"],
+                                            report = report_item,
+                                            trait = trait_item,
+                                            variance_explained = row["var.exp"],
+                                            log10p = row["log10p"],
+                                            BF = row["BF"],
+                                            interval_start = row["startPOS"],
+                                            interval_end = row["endPOS"],
+                                            version = "0.1",
+                                            reference = "WS245").save()
+
+                # Insert Variant Correlation records into database.
+                if os.path.isfile("tables/interval_variants_db.tsv"):
+                    with db.atomic():
+                        with open("tables/interval_variants_db.tsv") as tsvin:
+                            tsvin = csv.DictReader(tsvin, delimiter = "\t")
+                            for row in tsvin:
+                                mapping_correlation(report = report_item,
+                                                    trait = trait_item,
+                                                    CHROM = row["CHROM"],
+                                                    POS = row["POS"],
+                                                    gene_id = row["gene_id"],
+                                                    alt_allele = row["num_alt_allele"],
+                                                    num_strain = row["num_strains"],
+                                                    correlation = row["corrected_spearman_cor"]).save()
 
                 # Update status of report submission
                 trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()

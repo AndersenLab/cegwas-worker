@@ -175,6 +175,24 @@ class mapping(Model):
     class Meta:
         database = db
 
+
+
+class mapping_correlation(Model):
+    CHROM = CharField(index = True)
+    POS = IntegerField(index = True)
+    gene_id = CharField(index = True)
+    alt_allele = IntegerField() # Number of alternative alleles.
+    num_strains = IntegerField()
+    correlation = FloatField()
+
+    indexes = (
+            (('chrom', 'pos', 'wbid'), False),
+            )
+
+    class Meta:
+        database = db
+
+
 class site(Model):
     CHROM = CharField(index = True)
     POS = IntegerField(index = True)
