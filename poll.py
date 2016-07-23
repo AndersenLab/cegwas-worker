@@ -107,11 +107,9 @@ def run_pipeline():
                 # Remove existing files if they exist
                 [os.remove(x) for x in glob.glob("tables/*")]
                 [os.remove(x) for x in glob.glob("figures/*")]
-                if os.path.isfile("report.html"):
-                    os.remove("report.html")
 
                 # Run workflow
-                comm = """Rscript -e "rmarkdown::render('report.Rmd')" '{args}'""".format(args = args)
+                comm = """Rscript run.R '{args}'""".format(args = args)
 
                 print(comm)
                 check_output(comm, shell = True)
@@ -123,12 +121,10 @@ def run_pipeline():
                 update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
                 
                 # Upload results
-                upload1 = """gsutil -m cp report.html gs://cendr/{report_slug}/{trait_slug}/report.html""".format(**locals())
+                upload1 = """gsutil -m cp -r figures gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
                 check_output(upload1, shell = True)
-                upload2 = """gsutil -m cp -r figures gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
+                upload2 = """gsutil -m cp -r tables gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
                 check_output(upload2, shell = True)
-                upload3 = """gsutil -m cp -r tables gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
-                check_output(upload3, shell = True)
 
                 # Insert records into database
                 if os.path.isfile("tables/processed_sig_mapping.tsv"):
