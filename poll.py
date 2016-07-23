@@ -147,20 +147,27 @@ def run_pipeline():
                                             version = "0.1",
                                             reference = "WS245").save()
 
+                # Refresh mysql connection
+                db.close()
+                db.connect()
+
                 # Insert Variant Correlation records into database.
-                if os.path.isfile("tables/interval_variants_db.tsv"):
-                    with db.atomic():
-                        with open("tables/interval_variants_db.tsv") as tsvin:
-                            tsvin = csv.DictReader(tsvin, delimiter = "\t")
-                            for row in tsvin:
-                                mapping_correlation(report = report_item,
-                                                    trait = trait_item,
-                                                    CHROM = row["CHROM"],
-                                                    POS = row["POS"],
-                                                    gene_id = row["gene_id"],
-                                                    alt_allele = row["num_alt_allele"],
-                                                    num_strain = row["num_strains"],
-                                                    correlation = row["corrected_spearman_cor"]).save()
+                try:
+                    if os.path.isfile("tables/interval_variants_db.tsv"):
+                        with db.atomic():
+                            with open("tables/interval_variants_db.tsv") as tsvin:
+                                tsvin = csv.DictReader(tsvin, delimiter = "\t")
+                                for row in tsvin:
+                                    mapping_correlation(report = report_item,
+                                                        trait = trait_item,
+                                                        CHROM = row["CHROM"],
+                                                        POS = row["POS"],
+                                                        gene_id = row["gene_id"],
+                                                        alt_allele = row["num_alt_allele"],
+                                                        num_strain = row["num_strains"],
+                                                        correlation = row["corrected_spearman_cor"]).save()
+                except:
+                    pass
 
                 # Update status of report submission
                 trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
