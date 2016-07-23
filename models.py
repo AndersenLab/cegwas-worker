@@ -151,10 +151,6 @@ class mapping_correlation(Model):
     num_strains = IntegerField()
     correlation = FloatField()
 
-    indexes = (
-            (('report', 'trait', 'CHROM', 'POS', 'gene_id'), True),
-            )
-
     class Meta:
         database = db
         

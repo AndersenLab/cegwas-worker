@@ -99,8 +99,6 @@ def run_pipeline():
                 db.close()
                 db.connect()
 
-                report_id = report.get(report_slug = report_slug).id
-
                 # Update status
                 update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
                 
@@ -152,6 +150,9 @@ def run_pipeline():
                 db.connect()
 
                 # Insert Variant Correlation records into database.
+                # Remove any existing
+                mapping_correlation.delete().where(mapping_correlation.report == report_item, mapping_correlation.trait == trait_item).execute()
+
                 try:
                     if os.path.isfile("tables/interval_variants_db.tsv"):
                         with db.atomic():
@@ -170,11 +171,11 @@ def run_pipeline():
                     pass
 
                 # Update status of report submission
-                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
+                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="complete").where(trait.report == report_item, trait.trait_slug == trait_slug).execute()
                 log.info("Finished " + report_slug + "/" + trait_slug)
             except Exception as e:
                 log.exception("mapping errored")
-                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="error").where(trait.report == report_id, trait.trait_slug == trait_slug).execute()
+                trait.update(submission_complete=datetime.now(pytz.timezone("America/Chicago")), status="error").where(trait.report == report_item, trait.trait_slug == trait_slug).execute()
                 error = datastore.Entity(key=ds.key("Error", gce_id))
                 error["machine_name"] = gce_name
                 error["error"] = unicode(e)
