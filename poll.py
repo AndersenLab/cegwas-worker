@@ -125,6 +125,10 @@ def run_pipeline():
                 check_output(upload2, shell = True)
 
                 # Insert records into database
+
+                # Remove existing
+                mapping.delete().where(mapping.report == report_item, mapping.trait == trait_item).execute()
+
                 if os.path.isfile("tables/processed_sig_mapping.tsv"):
                     with db.atomic():
                         with open("tables/processed_sig_mapping.tsv", 'rb') as tsvin:
