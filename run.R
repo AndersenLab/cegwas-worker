@@ -6,6 +6,7 @@ library(jsonlite)
 library(RMySQL)
 library(tidyr)
 library(readr)
+library(xmemoise)
 
 # Get Payload
 if (length(commandArgs(trailingOnly=TRUE)) == 0) {
@@ -90,7 +91,9 @@ readr::write_tsv("tables/phenotype.tsv")
 
 update_status("Performing Mapping")
 
-mapping <- gwas_mappings(trait, mapping_snp_set = FALSE)
+mgwas_mappings <- memoise(gwas_mappings, cache = cache_datastore(project = "andersen-lab", cache = "rcache"))
+
+mapping <- mgwas_mappings(trait, mapping_snp_set = FALSE)
 
 # Save mapping file
 save(mapping, file = "tables/mapping.Rdata")
@@ -216,7 +219,14 @@ if(nrow(proc_mappings) == 0){
 
   # Get interval variants
   update_status("Fine Mapping")
-  interval_variants <- process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25, condition_trait = F))
+
+  proc_variants <- function(proc_mappings) {
+    process_correlations(variant_correlation(proc_mappings, quantile_cutoff_high = 0.75, quantile_cutoff_low = 0.25, condition_trait = F))
+  }
+
+  mproc_variants <- memoise(proc_variants, cache = cache_datastore(project = "andersen-lab", cache = "rcache"))
+
+  interval_variants <- mproc_variants(proc_mappings)
   
   readr::write_tsv(interval_variants, "tables/interval_variants.tsv")
   
