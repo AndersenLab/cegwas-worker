@@ -91,8 +91,8 @@ def run_pipeline():
                 release = data["release"]
 
                 # Get db trait and report.
-                report_item = report.get(report_slug = report_slug)
-                trait_item = list(trait.select().filter(trait.trait_slug == trait_slug, trait.report == report_item).dicts().execute())[0]["id"]
+                report_item = report.get(report_name = report_name)
+                trait_item = trait.get(trait.report == report_item, trait.trait_slug == trait_slug)
 
                 log.info("Starting Mapping: " + report_slug + "/" + trait_slug)
                 # Refresh mysql connection

@@ -143,8 +143,7 @@ ggsave("figures/phenotype_histogram-1.png", width = 10, height = 5)
 
 if(nrow(proc_mappings) == 0){
   readr::write_tsv(pr_mapping, "tables/non_sig_mapping.tsv")
-  cegwas::manplot(pr_mapping) %>%
-  ggplot2::ggplot(.) +
+  ggplot(pr_mapping) +
   ggplot2::aes(x = POS/1e6, y = log10p) +
   ggplot2::geom_point() +
   ggplot2::facet_grid(.~CHROM, scales = "free_x", space = "free_x") +
@@ -159,7 +158,7 @@ if(nrow(proc_mappings) == 0){
   ggplot2::labs(x = "Genomic Position (Mb)",
                 y = expression(-log[10](p)))
 
-  ggsave("figures/Manplot-1.png", width = 10, height = 5)
+  ggsave("figures/non-sig Manhattan Plot-1.png", width = 10, height = 5)
 
 } else {
 
@@ -177,7 +176,7 @@ if(nrow(proc_mappings) == 0){
   dplyr::select(trait,peak_pos = marker, interval = query, peak_log10p = log10p)
 
   # Manhattan Plot
-  mplot <- manplot(proc_mappings, "#666666")
+  mplot <- cegwas::manplot(proc_mappings, "#666666")
   mplot[[1]] +
   theme_bw() +
   pub_theme + 
