@@ -1,4 +1,3 @@
-import daemon
 import httplib2
 import base64
 import json
@@ -15,7 +14,6 @@ import glob
 import csv
 from gcloud import datastore
 import requests
-from daemonize import Daemonize
 import logging
 
 logging.basicConfig(format = "%(levelname)s\t%(message)s\t%(asctime)s")
@@ -40,27 +38,12 @@ pid = "/tmp/poll.pid"
 ds = datastore.Client()
 
 def fetch_metadata(key):
-    metadata_server = "http://metadata/computeMetadata/v1/instance/"
+    metadata_server = "http://metadata.google.internal/computeMetadata/v1/instance/attributes/"
     metadata_flavor = {'Metadata-Flavor' : 'Google'}
     return requests.get(metadata_server + key, headers = metadata_flavor).text
 
 # Get instance information
-gce_id = fetch_metadata("id")
 gce_name = fetch_metadata('hostname')
-
-def update_worker_state(status = "idle", report_slug = "", report_name = "", trait_slug = "", trait_name = "", release = 0):
-    worker = datastore.Entity(key=ds.key("Worker", gce_id))
-    worker["full_name"] = gce_name
-    worker["release"] = release
-    worker["last_update"] = unicode(datetime.now(pytz.timezone("America/Chicago")).isoformat())
-    worker["last_update_unix"] = time.time()
-    worker["status"] = unicode(status)
-    worker["report_slug"] = unicode(report_slug)
-    worker["report_name"] = unicode(report_name)
-    worker["trait_slug"] = unicode(trait_slug)
-    worker["trait_name"] = unicode(trait_name)
-    ds.put(worker)
-
 
 def run_pipeline():
     log.info("starting_script")
@@ -70,7 +53,7 @@ def run_pipeline():
     trait_slug = fetch_metadata('trait_slug')
     trait_name = fetch_metadata('trait_name')
     release = fetch_metadata('release')
-
+    print report_slug, report_name, trait_slug, trait_name, release
     # Get db trait and report.
     report_item = report.get(report_name = report_name)
     trait_item = trait.get(trait.report == report_item, trait.trait_slug == trait_slug)
@@ -80,14 +63,13 @@ def run_pipeline():
     db.close()
     db.connect()
 
-    # Update status
-    update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
-    
     # Remove existing files if they exist
     [os.remove(x) for x in glob.glob("tables/*")]
     [os.remove(x) for x in glob.glob("figures/*")]
 
     # Run workflow
+    args = {'report_slug': report_slug, 'trait_slug': trait_slug}
+    args = json.dumps(args)
     comm = """Rscript run.R '{args}'""".format(args = args)
     try:
         print(comm)
@@ -97,8 +79,6 @@ def run_pipeline():
         db.close()
         db.connect()
 
-        update_worker_state(status = "running", report_slug = report_slug, report_name = report_name, trait_slug = trait_slug, trait_name = trait_name, release = release)
-        
         # Upload results
         upload1 = """gsutil -m cp -r figures gs://cendr/{report_slug}/{trait_slug}/""".format(**locals())
         check_output(upload1, shell = True)
@@ -167,7 +147,6 @@ def run_pipeline():
         error["time"] = unicode(datetime.now(pytz.timezone("America/Chicago")).isoformat())
         error["report_slug"] = unicode(report_slug)
         error["trait_slug"] = unicode(trait_slug)
-        ds.put(error)
 
 run_pipeline()
 

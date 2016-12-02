@@ -113,39 +113,17 @@ if(max_sig > bf){
     dplyr::filter(log10p !=0) %>% 
     dplyr::mutate(marker = gsub("_", ":", marker)) %>%
     filter(!(grepl("MtDNA",marker) & log10p < BF))
-  readr::write_tsv(proc_mappings, "tables/processed_sig_mapping.tsv")
+  readr::write_tsv(proc_mappings, "tables/mapping.tsv")
 } 
 
 mapping %>% dplyr::mutate(marker = gsub("_",":", marker)) %>%
-readr::write_tsv("tables/raw_mapping.tsv")
-
-#=====================#
-# Phenotype Histogram #
-#=====================#
-update_status("Plotting Figures")
-phenotype_data <- tidyr::gather(data.frame(trait[[2]]), strain, value)
-ggplot2::ggplot(phenotype_data, aes(x = value)) +
-  ggplot2::geom_histogram(color = "#0A3872", fill = "#0B5DA2") +
-  ggplot2::theme_bw() +
-  ggplot2::theme(axis.text.x = ggplot2::element_text(size=18, face="bold", color="black"),
-                 axis.text.y = ggplot2::element_text(size=18, face="bold", color="black"),
-                 axis.title.x = ggplot2::element_text(size=24, face="bold", color="black", vjust=-.3),
-                 axis.title.y = ggplot2::element_text(size=24, vjust = -0.3,  color="black"),
-                 strip.text.x = ggplot2::element_text(size=24, face="bold", color="black"),
-                 strip.text.y = ggplot2::element_text(size=16, face="bold", color="black"),
-                 plot.title = ggplot2::element_text(size=24, face="bold", vjust = 1, margin = margin(b = 20, unit = "pt")),
-                 legend.position="none") +
-  ggplot2::labs(x = args$trait_name, y = "Count")
-
-ggsave("figures/phenotype_histogram-1.png", width = 10, height = 5)
-
+readr::write_tsv("tables/mapping.tsv")
 
 #==================================#
 # Manhattan Plot - Not significant #
 #==================================#
 
 if(nrow(proc_mappings) == 0){
-  readr::write_tsv(pr_mapping, "tables/non_sig_mapping.tsv")
   ggplot(pr_mapping) +
   ggplot2::aes(x = POS/1e6, y = log10p) +
   ggplot2::geom_point() +
@@ -161,7 +139,7 @@ if(nrow(proc_mappings) == 0){
   ggplot2::labs(x = "Genomic Position (Mb)",
                 y = expression(-log[10](p)))
 
-  ggsave("figures/non-sig Manhattan Plot-1.png", width = 10, height = 5)
+  ggsave("figures/Manhattan.png", width = 10, height = 5)
 
 } else {
 
@@ -192,7 +170,7 @@ if(nrow(proc_mappings) == 0){
                 y = expression(-log[10](p))) +
   theme(plot.title = ggplot2::element_blank())
 
-  ggsave("figures/Manplot-1.png", width = 10, height = 5)
+  ggsave("figures/Manhattan.png", width = 10, height = 5)
 
 
   # PxG Plot
@@ -208,13 +186,13 @@ if(nrow(proc_mappings) == 0){
     theme(legend.position = "none",
                       plot.title = ggplot2::element_blank())
 
-  ggsave("figures/PxGplot-1.png", width = 10, height = 5)
+  ggsave("figures/PxG.png", width = 10, height = 5)
 
 
   # Plot Peak LD if more than one peak.
   if(nrow(peaks) > 1){
     plot_peak_ld(proc_mappings) 
-    ggsave("figures/LDplot-1.png", width = 14, height = 11)
+    ggsave("figures/LD.png", width = 14, height = 11)
   }
 
   # Get interval variants
@@ -234,7 +212,7 @@ if(nrow(proc_mappings) == 0){
   interval_variants %>% 
     dplyr::select(CHROM, POS, gene_id, num_alt_allele, num_strains, corrected_spearman_cor) %>%
     dplyr::distinct(.keep_all = T) %>%
-    readr::write_tsv("tables/interval_variants_db.tsv")
+    readr::write_tsv("tables/interval_variants.tsv")
 }
 
 
